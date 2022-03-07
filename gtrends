@@ -1,0 +1,230 @@
+library(ggplot2)
+library(reshape2)
+library(gtrendsR)
+library(ggpubr)
+library(grid)
+library(Hmisc)
+library(dplyr)
+library(corrplot)
+library(lubridate)
+
+####use this file with file gtrend2.R, where necessary
+
+res1 <- gtrends(c("coronavirus","covid-19","covid","corona"), geo = "NG", time = "2020-02-28 2021-02-28")
+plot(res1)
+disease=res1[[1]]
+disease$date=(as.Date(disease$date))
+disease$hits=(as.integer(disease$hits))
+disease$hits[is.na(disease$hits)]=0
+
+res2 <- gtrends(c("mask","sanitizer","social distancing","hand wash"), geo = "NG", time ="2020-02-28 2021-02-28")
+plot(res2)
+npi=res2[[1]]
+npi$date=(as.Date(npi$date))
+npi$hits=(as.integer(npi$hits))
+npi$hits[is.na(npi$hits)]=0
+
+res3 <- gtrends(c("quarantine","lockdown"), geo = "NG", time = "2020-02-28 2021-02-28")
+plot(res3)
+instr=res3[[1]]
+instr$date=(as.Date(instr$date))
+instr$hits=(as.integer(instr$hits))
+instr$hits[is.na(instr$hits)]=0
+
+res4 <-  gtrends(c("fever","loss of smell","loss of taste","sore throat", "cough"), 
+        geo = "NG", time ="2020-02-28 2021-02-28")
+plot(res4)
+symptoms=res4[[1]]
+symptoms$date=(as.Date(symptoms$date))
+symptoms$hits=(as.integer(symptoms$hits))
+symptoms$hits[is.na(symptoms$hits)]=0
+#### plots
+p=disease %>%
+  ggplot()+ labs(y="RSV (%)")+labs(x="")+
+  geom_line(aes(date,hits,colour=keyword))+theme_bw()+
+  theme(legend.title=element_blank())+ggtitle("Disease related")+
+theme(panel.grid.major = element_blank(), panel.grid.minor=element_blank())
+      
+q=npi %>%
+  ggplot()+ labs(y="RSV (%)")+labs(x="")+
+  geom_line(aes(date,hits,colour=keyword))+theme_bw()+
+  theme(legend.title=element_blank())+ggtitle("NPI")+
+theme(panel.grid.major = element_blank(),panel.grid.minor=element_blank())
+      
+r=symptoms %>%
+  ggplot()+ labs(y="RSV (%)")+labs(x="")+
+    geom_line(aes(date,hits,colour=keyword))+theme_bw()+
+    theme(legend.title=element_blank())+ggtitle("Symptoms")+
+theme(panel.grid.major = element_blank(),panel.grid.minor=element_blank())
+  
+s=instr%>%
+  ggplot()+labs(y="RSV (%)")+labs(x="")+
+  geom_line(aes(date,hits,colour=keyword))+theme_bw()+
+  theme(legend.title=element_blank())+ggtitle("Instructions")+
+theme(panel.grid.major = element_blank(),panel.grid.minor=element_blank())
+  
+ggarrange(p,q,r,s)
+    grid.rect(.5,.5,width=unit(.99,"npc"), height=unit(0.99,"npc"), 
+              gp=gpar(lwd=2, fill=NA, col="black"))
+    
+### real data transform day to week
+
+gt=read.csv("covid_daily.csv")
+#gt=read.csv("covid_daily2.csv")
+gt$date=as.Date(gt$Date); class(gt$date)
+gt$week <- floor_date(gt$date, "week")
+week=gt$week
+daily=gt$daily
+
+dt=data.frame(week,daily) %>%
+  group_by(week) %>%
+  summarise(weekly = sum(daily)) #it's summarize for version 4.1
+dat=as.data.frame(dt)
+dat <- dat[-1, ] ### remove first row
+#write.csv(dat,"weekly.csv")
+#write.csv(dat2,"weekly_test.csv")
+
+### data normalization to scale 100
+dat=read.csv("weekly_train.csv")
+mn=min(dat$weekly)
+mx=max(dat$weekly)
+dat$weekly2=((dat$weekly - mn) / (mx - mn)) * 100
+dat$weekly2=(dat$weekly - mn) / (mx - mn) * 100
+
+### correlations
+#only cough, fever, loss of smell are p<.05
+
+disease2=dcast(disease,date~keyword,value.var="hits")[,-1]
+npi2=dcast(npi,date~keyword,value.var="hits")[,-1]
+symptoms2=dcast(symptoms,date~keyword,value.var="hits")[,-1]
+instr2=dcast(instr,date~keyword,value.var="hits")[,-1]
+
+#dat$week=as.Date(dat$week)
+overall=cbind(dat,disease2,npi2,symptoms2,instr2)
+r=rcorr(as.matrix(overall[,-1]),type="spearman")$r[,1]; r=round(r,3)
+pv=rcorr(as.matrix(overall[,-1]),type="spearman")$P[,1]; pv=round(pv,3)
+cbind(r,pv)
+sort(abs(r),decreasing = T)
+
+## leave blank on non-significant coefficient
+## add significant correlation coefficients
+M = cor(overall[,-1],method="spearman")
+testRes = cor.mtest(M, conf.level = 0.99)
+corrplot(M, p.mat = testRes$p,type='upper',insig='blank',sig.level=0.01,
+  addCoef.col ='black', number.cex = 0.5, diag=FALSE,tl.cex=.5)
+#write.csv(overall,"overall.csv")
+overall=read.csv("overall.csv")
+overall$week=as.Date(overall$week); class(overall$week)
+
+####plots
+b <- ggplot(overall, aes(x = week))
+b <- b + geom_line(aes(y = `loss of smell`, colour = "loss of smell"))
+
+b <- b + geom_line(aes(y = weekly/100, colour = "Actual weekly cases"))
+b <- b + scale_y_continuous(sec.axis = sec_axis(~.*100, name = "Actual weekly cases"))
+b <- b + theme(legend.title=element_blank())+theme_bw()+
+theme(panel.grid.major = element_blank(),panel.grid.minor=element_blank())
+b <- b + labs(y = "RSV (%)",x = "", colour = "")#+theme(legend.position = c(0.8, 0.9))
+
+### modeling
+library(forecast)
+library(tseries)
+library(lmtest)
+
+plot( tsdat22, ylab = "Number of cases", main = "")
+lines(fc$mean+5000, main = "",col="red")
+lines(fc$mean+6000, main = "",col="red")
+lines(fc$mean+8000, main = "",col="red")
+lines(fc$mean+7000, main = "",col="red")
+
+plot.ts(tsdat)
+
+###outliers (if need be)
+plot(tsdat, ylab="weekly cases",xlab="")
+lines(tsclean(tsdat), col='red') ##replace outliers
+### stationarity test
+kpss.test(tsdat);kpss.test(tsdat,null = "Trend")
+pp.test(tsdat)
+#adf.test(tsdat)
+
+### differencing and retest for stationarity
+
+difftsdat=diff(tsdat)
+plot.ts(difftsdat)
+kpss.test(difftsdat);kpss.test(difftsdat,null = "Trend")
+pp.test(difftsdat)
+#adf.test(difftsdat)
+
+###test set
+dat2=read.csv("weekly_test.csv")
+dat2$week=as.Date(dat2$week)
+tsdat2<- ts(dat2[,2],start=54,frequency=1)
+difftsdat2=diff(tsdat2)
+### acf and pacf
+par(mfrow=c(1,2))
+acf(difftsdat[1:length(difftsdat)],main="") #or Acf()
+pacf(difftsdat[1:length(difftsdat)],main="") #or Pacf()
+
+### model fitting
+auto.arima(tsdat,trace=T)
+auto.arima(difftsdat,trace=T)
+#fdGPH(tsdat, 0.75)
+
+fit=arima(tsdat,order=c(2,1,0))
+coeftest(fit)
+checkresiduals(fit)
+
+##forecast accuracy
+#accuracy(fit) #in-sample only
+
+fc=forecast(fit,h=length(tsdat2))
+accuracy(fc,tsdat2)
+merge_dat=rbind(dat,dat2)
+#write.csv(merge_dat,"weekly.csv")
+
+###include gtrends
+
+xreg1 <- x_train[,"coronavirus"]
+xreg2 <- x_train[,"fever"]
+xreg3 <- x_train[,"loss of taste"]
+
+x_spline1=bs(xreg1, knots = quantile(xreg1,(1:2)/3), Boundary.knots=c(0,100))
+x_spline2=bs(xreg2, knots = quantile(xreg2,(1:2)/3), Boundary.knots=c(0,100))
+x_spline3=bs(xreg3, knots = quantile(xreg3,(1:2)/3), Boundary.knots=c(0,100))
+
+fit1 <- auto.arima(tsdat, xreg = xreg1); AIC(fit1)
+fit2 <- auto.arima(tsdat, xreg = xreg2); AIC(fit2)
+fit3 <- auto.arima(tsdat, xreg = xreg3); AIC(fit3)
+
+fit1_spline <- Arima(tsdat, order=c(2,1,0),xreg = x_spline1)
+fit2_spline <- Arima(tsdat, order=c(2,1,0),xreg = x_spline2)
+fit3_spline <- Arima(tsdat, order=c(2,1,0),xreg = x_spline3)
+
+fc1a=forecast(fit1,xreg =x_test[,"coronavirus"]); accuracy(fc1a,tsdat2)
+fc1b=forecast(fit2,xreg =x_test[,"fever"]); accuracy(fc1b,tsdat2)
+fc1c=forecast(fit3,xreg =x_test[,"loss of smell"]); accuracy(fc1c,tsdat2)
+
+fc2a=forecast(fit1_spline,xreg =x_spline1); accuracy(fc2a,tsdat2)
+fc2b=forecast(fit2_spline,xreg =x_spline2); accuracy(fc2b,tsdat2)
+fc2c=forecast(fit3_spline,xreg =x_spline3); accuracy(fc2c,tsdat2)
+
+tsmerge_dat=merge_dat[,2]
+tsmerge_dat=ts(tsmerge_dat,start=1,frequency = 1)
+a1=autoplot(tsmerge_dat, series="Actual") + 
+  autolayer(fc$mean, series="Forecast1") + 
+  autolayer(fc$mean+1000, series="Forecast2") + 
+  labs(y = "",x = "week")+abline(v=54)
+
+a2=autoplot(tsmerge_dat, series="Actual") + 
+  autolayer(fc2a$mean, series="Forecast") + 
+  labs(y = "",x = "week")
+ggarrange(a1,a2,common.legend = T)
+
+dm.test(tsdat2-fc$mean, tsdat2-fc2a$mean) 
+
+plot( tsmerge_dat, ylab = "weekly cases",xlab="week", main = "")
+lines(fc$mean, main = "",col="red")
+lines(fc1a$mean, main = "",col="blue")
+abline(v=54,col="grey")
+legend( "topleft", legend = c( "predicted with GT", "predicted without GT", 
+        "Actual"),fill = c( "blue", "red", "black" ), cex = 0.7) 
