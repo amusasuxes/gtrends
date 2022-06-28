@@ -63,6 +63,7 @@ s=instr%>%
   theme(legend.title=element_blank())+ggtitle("Instructions")+
 theme(panel.grid.major = element_blank(),panel.grid.minor=element_blank())
   
+  
 ggarrange(p,q,r,s)
     grid.rect(.5,.5,width=unit(.99,"npc"), height=unit(0.99,"npc"), 
               gp=gpar(lwd=2, fill=NA, col="black"))
